@@ -1,0 +1,39 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://clutchverse:clutchverse@localhost:5432/clutchverse?schema=public
+      DIRECT_URL: ${{ env.DATABASE_URL }}
+      REDIS_URL: redis://localhost:6379
+      AUTH_SECRET: ClutchVerseCISecretForE2EOnly-ReplaceOutsideCI
+      AUTH_URL: http://127.0.0.1:3000
+      WEB_ORIGIN: http://127.0.0.1:3000
+      NEXT_PUBLIC_REALTIME_URL: http://127.0.0.1:4001
+      REALTIME_PORT: "4001"
+      E2E_BASE_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @clutchverse/web exec playwright install --with-deps chromium
+      - run: docker compose up -d --wait postgres redis
+      - run: DIRECT_URL="$DATABASE_URL" pnpm --filter @clutchverse/db db:push
+      - run: pnpm --filter @clutchverse/db db:seed
+      - run: DIRECT_URL="$DATABASE_URL" pnpm lint
+      - run: DIRECT_URL="$DATABASE_URL" pnpm typecheck
+      - run: DIRECT_URL="$DATABASE_URL" pnpm test
+      - run: DIRECT_URL="$DATABASE_URL" pnpm build
+      - run: pnpm test:e2e
+      - if: always()
+        run: docker compose down -v
