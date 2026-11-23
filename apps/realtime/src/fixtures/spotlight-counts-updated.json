@@ -1,0 +1,8 @@
+{
+  "slug": "fixture-event",
+  "event": "counts:updated",
+  "payload": {
+    "confirmedTeams": 0
+  },
+  "updatedAt": "2026-11-23T00:00:00.000Z"
+}

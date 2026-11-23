@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@clutchverse/db";
 import { auth } from "@/auth";
+import { publishProSceneUpdate } from "@/lib/pro-scene-events";
+import type { GameSlug } from "@clutchverse/core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +77,7 @@ export async function POST(request: Request) {
       });
       return saved;
     });
+    await publishProSceneUpdate(event.gameSlug as GameSlug, event.id);
     return NextResponse.json({ event }, { status: 201 });
   } catch (error) {
     console.error("Pro Scene event creation failed.", {

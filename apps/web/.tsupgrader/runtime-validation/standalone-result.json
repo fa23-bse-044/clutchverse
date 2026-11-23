@@ -1,0 +1,76 @@
+{
+  "planHash": "d05d6ae5de7899a884194a4cfd87ff9664d0fb09609a4e392535c76ff68c4a45",
+  "phase": "standalone",
+  "recordedAtUtc": "2026-11-11T15:29:04.7681670Z",
+  "retryCount": 1,
+  "resetBaseline": false,
+  "complete": true,
+  "result": {
+    "setupSucceeded": true,
+    "setupDurationMs": 0,
+    "setupFailureOutput": null,
+    "assertions": [
+      {
+        "name": "tests-pass",
+        "kind": "process",
+        "verificationMethod": "test-results",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\n\u003E @clutchverse/web@0.1.0 test /home/uqba/Desktop/ClutchVerse/apps/web\n\u003E vitest run --passWithNoTests\n\n\n RUN  v2.1.9 /home/uqba/Desktop/ClutchVerse/apps/web\n\n \u2713 src/lib/chat-scope.test.ts (8 tests) 45ms\n \u2713 src/lib/chat-request.test.ts (5 tests) 26ms\n \u2713 src/lib/tournament-registration.test.ts (5 tests) 34ms\n \u2713 src/lib/seasonal-play.test.ts (3 tests) 11ms\n \u2713 src/lib/analytics.test.ts (1 test) 36ms\n \u2713 src/i18n/locales.test.ts (3 tests) 74ms\n \u2713 src/lib/contact-email.test.ts (2 tests) 28ms\n \u2713 src/lib/youtube-live.test.ts (2 tests) 19ms\n \u2713 src/config/game-rules.test.ts (2 tests) 21ms\n \u2713 src/lib/ai-assistant.test.ts (2 tests) 9ms\n \u2713 src/lib/contact-validation.test.ts (2 tests) 13ms\n \u2713 src/lib/match-result-reconciliation.test.ts (2 tests) 6ms\n \u2713 src/lib/search-matcher.test.ts (2 tests) 13ms\n \u2713 src/lib/creator-tools.test.ts (1 test) 7ms\n \u2713 src/lib/match-result-engine.test.ts (1 test) 16ms\n\n Test Files  15 passed (15)\n      Tests  41 passed (41)\n   Start at  20:28:32\n   Duration  5.05s (transform 1.50s, setup 0ms, collect 3.39s, tests 358ms, environment 18ms, prepare 4.03s)\n\n",
+        "durationMs": 6619,
+        "testResults": {
+          "testFramework": "vitest",
+          "runnerDetectedFrom": "package_json",
+          "testsTotal": 41,
+          "testsPassed": 41,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "parseFailed": false
+        }
+      },
+      {
+        "name": "dev-server-serves-home",
+        "kind": "http-probe",
+        "verificationMethod": "http-status",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": null,
+        "outputSample": "HTTP 200\n\u003C!DOCTYPE html\u003E\u003Chtml lang=\u0022en\u0022 dir=\u0022ltr\u0022\u003E\u003Chead\u003E\u003Cmeta charSet=\u0022utf-8\u0022/\u003E\u003Cmeta name=\u0022viewport\u0022 content=\u0022width=device-width, initial-scale=1\u0022/\u003E\u003Clink rel=\u0022stylesheet\u0022 href=\u0022/_next/static/css/app/layout.css?v=1794410943564\u0022 data-precedence=\u0022next_static/css/app/layout.css\u0022/\u003E\u003Clink rel=\u0022preload\u0022 as=\u0022script\u0022 fetchPriority=\u0022low\u0022 href=\u0022/_next/static/chunks/webpack.js?v=1794410943564\u0022/\u003E\u003Cscript src=\u0022/_next/static/chunks/main-app.js?v=1794410943564\u0022 async=\u0022\u0022\u003E\u003C/script\u003E\u003Cscript src=\u0022/_next/static/chunks/app-pages-internals.js\u0022 async=\u0022\u0022\u003E\u003C/script\u003E\u003Cscript src=\u0022/_next/static/chunks/app/page.js\u0022 async=\u0022\u0022\u003E\u003C/script\u003E\u003Cscript src=\u0022/_next/static/chunks/app/layout.js\u0022 async=\u0022\u0022\u003E\u003C/script\u003E\u003Ctitle\u003EClutchVerse \u2014 Play for the moment.\u003C/title\u003E\u003Cmeta name=\u0022description\u0022 content=\u0022The arena for your next big play. Compete, connect, and climb across PUBG Mobile, Free Fire, Tekken 8, and EA SPORTS FC.\u0022/\u003E\u003Clink rel=\u0022manifest\u0022 href=\u0022/manifest.webmanifest\u0022/\u003E\u003Cmeta property=\u0022og:title\u0022 content=\u0022ClutchVerse \u2014 Play for the moment.\u0022/\u003E\u003Cmeta property=\u0022og:description\u0022 content=\u0022Your next big play starts here.\u0022/\u003E\u003Cmeta property=\u0022og:site_name\u0022 content=\u0022ClutchVerse\u0022/\u003E\u003Cmeta property=\u0022og:type\u0022 content=\u0022website\u0022/\u003E\u003Cmeta name=\u0022twitter:card\u0022 content=\u0022summary\u0022/\u003E\u003Cmeta name=\u0022twitter:title\u0022 content=\u0022ClutchVerse \u2014 Play for the moment.\u0022/\u003E\u003Cmeta name=\u0022twitter:description\u0022 content=\u0022Your next big play starts here.\u0022/\u003E\u003Clink rel=\u0022icon\u0022 href=\u0022/icon.svg?095d1d3033d80ad7\u0022 type=\u0022image/svg\u002Bxml\u0022 sizes=\u0022any\u0022/\u003E\u003Cscript src=\u0022/_next/static/chunks/polyfills.js\u0022 noModule=\u0022\u0022\u003E\u003C/script\u003E\u003C/head\u003E\u003Cbody\u003E\u003Cdiv hidden=\u0022\u0022\u003E\u003C!--$--\u003E\u003C!--/$--\u003E\u003C/div\u003E\u003Cscript\u003E((e, i, s, u, m, a, l, h)=\u003E{\n    let d = document.documentElement, w = [\n        \u0022light\u0022,\n        \u0022dark\u0022\n    ];\n    function p(n) {\n        (Array.isArray(e) ? e : [\n            e\n        ]).forEach((y)=\u003E{\n            let k = y === \u0022class\u0022, S = k \u0026\u0026 a ? m.map((f)=\u003Ea[f] || f) : m;\n            k ? (d.classList.remove(...S), d.classList.add(a \u0026\u0026 a[n] ? a[n] : n)) : d.setAttribute(y, n);\n        }), R(n);\n    }\n    function R(n) {\n        h \u0026\u0026 w.includes(n) \u0026\u0026 (d.style.colorScheme = n);\n    }\n    function c() {\n        return window.matchMedia(\u0022(prefers-color-scheme: dark)\u0022).matches ? \u0022dark\u0022 : \u0022light\u0022;\n    }\n    if (u) p(u);\n    else try {\n        let n = localStorage.getItem(i) || s, y = l \u0026\u0026 n === \u0022system\u0022 ? c() : n;\n        p(y);\n    } catch (n) {}\n})(\u0022data-theme\u0022,\u0022clutchverse-theme\u0022,\u0022neon-cyber\u0022,null,[\u0022neon-cyber\u0022,\u0022crimson-war\u0022,\u0022toxic-venom\u0022,\u0022arctic-frost\u0022,\u0022royal-gold\u0022,\u0022light-pro\u0022],null,false,true)\u003C/script\u003E\u003Ccanvas class=\u0022ambient-effects\u0022 aria-hidden=\u0022true\u0022\u003E\u003C/canvas\u003E\u003Cspan class=\u0022custom-cursor\u0022 aria-hidden=\u0022true\u0022 hidden=\u0022\u0022\u003E\u003C/span\u003E\u003Cdiv class=\u0022gemini-chat\u0022\u003E\u003Cbutton class=\u0022gemini-chat-launcher\u0022 type=\u0022button\u0022 aria-label=\u0022ClutchVerse AI\u0022 aria-expanded=\u0022false\u0022\u003E\u003Csvg xmlns=\u0022http://www.w3.org/2000/svg\u0022 width=\u002220\u0022 height=\u002220\u0022 viewBox=\u00220 0 24 24\u0022 fill=\u0022none\u0022 stroke=\u0022currentColor\u0022 stroke-width=\u00222\u0022 stroke-linecap=\u0022round\u0022 stroke-linejoin=\u0022round\u0022 class=\u0022lucide lucide-message-circle\u0022\u003E\u003Cpath d=\u0022M7.9 20A9 9 0 1 0 4 16.1L2 22Z\u0022\u003E\u003C/path\u003E\u003C/svg\u003E\u003Cspan\u003EClutchVerse AI\u003C/span\u003E\u003C/button\u003E\u003C/div\u003E\u003Cheader class=\u0022site-header\u0022\u003E\u003Cdiv class=\u0022container header-inner\u0022\u003E\u003Ca class=\u0022brand\u0022 aria-label=\u0022ClutchVerse home\u0022 href=\u0022/\u0022\u003E\u003Cspan class=\u0022brand-mark\u0022\u003EC\u003Cspan\u003EV\u003C/span\u003E\u003C/span\u003E\u003Cspan class=\u0022brand-name\u0022\u003ECLUTCH\u003Cspan\u003EVERSE\u003C/span\u003E\u003C/span\u003E\u003C/a\u003E\u003Cnav class=\u0022main-nav \u0022 aria-label=\u0022Main navigation\u0022\u003E\u003Cdiv class=\u0022nav-game-menu\u0022\u003E\u003Cbutton type=\u0022button\u0022 class=\u0022nav-link\u0022 aria-haspopup=\u0022menu\u0022 aria-expanded=\u0022false\u0022\u003EGames\u003C!-- --\u003E \u003Csvg xmlns=\u0022http://www.w3.org/2000/svg\u0022 width=\u002212\u0022 height=\u002212\u0022 viewBox=\u00220 0 24 24\u0022 fill=\u0022none\u0022 stroke=\u0022currentColor\u0022 stroke-width=\u00222\u0022 stroke-linecap=\u0022round\u0022 stroke-linejoin=\u0022round\u0022 class=\u0022lucide lucide-chevron-down\u0022\u003E\u003Cpath d=\u0022m6 9 6 6 6-6\u0022\u003E\u003C/path\u003E\u003C/svg\u003E\u003C/button\u003E\u003C/div\u003E\u003Ca class=\u0022nav-link\u0022 href=\u0022/tournaments\u0022\u003ETournaments\u003C/a\u003E\u003Ca class=\u0022nav-link\u0022 href=\u0022/rankings\u0022\u003ERankings\u003C/a\u003E\u003Ca class=\u0022nav-link\u0022 href=\u0022/seasonal-play\u0022\u003ESeason play\u003C/a\u003E\u003Ca class=\u0022nav-link\u0022 href=\u0022/live\u0022\u003ELive\u003C/a\u003E\u003Ca class=\u0022nav-link\u0022 href=\u0022/community\u0022\u003ECommunity\u003C/a\u003E\u003Ca class=\u0022nav-link\u0022 href=\u0022/about\u0022\u003EAbout Us\u003C/a\u003E\u003Ca class=\u0022nav-link\u0022 href=\u0022/contact\u0022\u003EContact Us\u003C/a\u003E\u003Ca class=\u0022na\n\u2026[truncated]",
+        "durationMs": 26118
+      }
+    ],
+    "executions": [
+      {
+        "source": "tests-pass",
+        "resolvedExecutable": "/home/uqba/.nvm/versions/node/v20.20.0/bin/pnpm",
+        "args": [
+          "test"
+        ],
+        "cwd": "/home/uqba/Desktop/ClutchVerse/apps/web",
+        "env": {},
+        "prependPath": [],
+        "platform": "linux"
+      },
+      {
+        "source": "dev-server-serves-home",
+        "resolvedExecutable": "/home/uqba/.nvm/versions/node/v20.20.0/bin/pnpm",
+        "args": [
+          "exec",
+          "next",
+          "dev",
+          "--port",
+          "3003"
+        ],
+        "cwd": "/home/uqba/Desktop/ClutchVerse/apps/web",
+        "env": {},
+        "prependPath": [],
+        "platform": "linux"
+      }
+    ]
+  }
+}

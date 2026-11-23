@@ -3,6 +3,7 @@ import type { MessageCatalog } from "../types";
 
 const zh = {
   ...en,
+  streamPlayer: en.streamPlayer,
   language: "语言",
   account: {
     signIn: "登录",
@@ -18,6 +19,7 @@ const zh = {
     allGames: "全部游戏中心",
     tournaments: "锦标赛",
     rankings: "排行榜",
+    seasonPass: "赛季玩法",
     live: "直播",
     community: "社区",
     about: "关于我们",

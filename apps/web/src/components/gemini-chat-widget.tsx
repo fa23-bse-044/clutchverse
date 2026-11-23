@@ -366,7 +366,13 @@ export function GeminiChatWidget() {
                     <strong>
                       {entry.role === "user" ? text.you : text.title}
                     </strong>
-                    <p>{entry.content || (busy ? "AI is typing…" : "")}</p>
+                    <p>
+                      {entry.role === "assistant" && entry.content.startsWith("AI-GENERATED NEWS DRAFT")
+                        ? <><strong>{text.aiGeneratedDraftLabel}</strong><br />{text.draftApprovalNotice}<br />{entry.content.split("\n\n").slice(1).join("\n\n")}</>
+                        : entry.role === "assistant" && entry.content.startsWith("AI-GENERATED MATCH RECAP")
+                          ? <><strong>{text.aiGeneratedRecapLabel}</strong><br />{entry.content.split("\n\n").slice(1).join("\n\n")}</>
+                          : entry.content || (busy ? "AI is typing…" : "")}
+                    </p>
                     {entry.sources && entry.sources.length > 0 && (
                       <div className="gemini-chat-sources" aria-label="Sources">
                         {entry.sources.map((source) => (

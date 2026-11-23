@@ -1,0 +1,29 @@
+{
+  "generatedAt": "2026-11-11T05:13:05Z",
+  "generatedOnPlatform": "linux",
+  "projectType": "webapp",
+  "setup": [],
+  "assertions": [
+    {
+      "name": "tests-pass",
+      "kind": "process",
+      "command": "pnpm",
+      "args": ["test"],
+      "cwd": ".",
+      "verificationMethod": "test-results",
+      "expected": "0",
+      "timeoutSeconds": 300
+    },
+    {
+      "name": "dev-server-serves-home",
+      "kind": "http-probe",
+      "startCommand": "pnpm",
+      "startArgs": ["exec", "next", "dev", "--port", "3003"],
+      "cwd": ".",
+      "url": "http://localhost:3003/",
+      "verificationMethod": "http-status",
+      "expected": "200",
+      "timeoutSeconds": 120
+    }
+  ]
+}

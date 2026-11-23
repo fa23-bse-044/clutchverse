@@ -3,6 +3,7 @@ import type { MessageCatalog } from "../types";
 
 const hi = {
   ...en,
+  streamPlayer: en.streamPlayer,
   language: "भाषा",
   account: {
     signIn: "साइन इन",
@@ -18,6 +19,7 @@ const hi = {
     allGames: "सभी गेम हब",
     tournaments: "टूर्नामेंट",
     rankings: "रैंकिंग",
+    seasonPass: "सीज़न खेल",
     live: "लाइव",
     community: "कम्युनिटी",
     about: "हमारे बारे में",

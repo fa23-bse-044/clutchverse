@@ -3,6 +3,7 @@ import type { MessageCatalog } from "../types";
 
 const es = {
   ...en,
+  streamPlayer: en.streamPlayer,
   language: "Idioma",
   account: {
     signIn: "INICIAR SESIÓN",
@@ -18,6 +19,7 @@ const es = {
     allGames: "Todos los juegos",
     tournaments: "Torneos",
     rankings: "Clasificación",
+    seasonPass: "Juego de temporada",
     live: "En vivo",
     community: "Comunidad",
     about: "Acerca de",

@@ -4,7 +4,7 @@ export const gameMedia = Object.fromEntries(
   games.map((game) => [
     game.slug,
     {
-      poster: game.image,
+      poster: `/media/${game.slug}/poster.jpg`,
       webm: `/media/${game.slug}/bg.webm`,
       mp4: `/media/${game.slug}/bg.mp4`,
     },

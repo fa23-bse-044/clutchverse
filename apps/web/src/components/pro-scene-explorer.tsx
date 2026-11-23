@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { io } from "socket.io-client";
 import { useLocale } from "@/i18n/locale-context";
 
 type EventRecord = {
@@ -32,11 +33,49 @@ export function ProSceneExplorer({
 }) {
   const { messages } = useLocale();
   const [filter, setFilter] = useState("all");
+  const [currentEvents, setCurrentEvents] = useState(events);
+  const [refreshError, setRefreshError] = useState("");
   const visible = useMemo(
-    () => events.filter((event) => filter === "all" || event.status === filter),
-    [events, filter],
+    () => currentEvents.filter((event) => filter === "all" || event.status === filter),
+    [currentEvents, filter],
   );
   const t = messages.proScene;
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await fetch(`/api/games/${gameSlug}/pro-scene`, {
+          cache: "no-store",
+        });
+        const payload = (await response.json()) as {
+          events?: EventRecord[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(payload.error ?? "Pro Scene data is unavailable.");
+        if (active) {
+          setCurrentEvents(payload.events ?? []);
+          setRefreshError("");
+        }
+      } catch (error) {
+        if (!active) return;
+        console.error("Could not refresh Pro Scene events.", error);
+        setRefreshError("Live data refresh failed. Showing the last loaded records.");
+      }
+    };
+    const socket = io(
+      process.env.NEXT_PUBLIC_REALTIME_URL ?? "http://localhost:4001",
+      { transports: ["websocket", "polling"], reconnectionAttempts: 3 },
+    );
+    socket.on("connect", () => {
+      socket.emit("proscene:subscribe", { gameSlug });
+      void refresh();
+    });
+    socket.on("proscene:updated", () => void refresh());
+    return () => {
+      active = false;
+      socket.disconnect();
+    };
+  }, [gameSlug]);
   return (
     <>
       <h1 className="page-title">{t.title}: {gameName}</h1>
@@ -57,10 +96,20 @@ export function ProSceneExplorer({
         <Link className="button button-quiet" href={`/games/${gameSlug}/pro-scene/teams`}>{t.teams}</Link>
         <Link className="button button-quiet" href={`/games/${gameSlug}/pro-scene/players`}>{t.players}</Link>
       </div>
+      {refreshError && <p className="search-error" role="status">{refreshError}</p>}
       {!visible.length ? (
         <div className="empty-panel panel">
           <strong>{t.noData}</strong>
           <p>{t.adminFallback}</p>
+          <p>
+            <a href="https://liquipedia.net/api-terms-of-use" target="_blank" rel="noreferrer">
+              Liquipedia API terms and attribution
+            </a>
+            {" · "}
+            <a href="https://developers.pandascore.co/docs/plan-reference" target="_blank" rel="noreferrer">
+              PandaScore game coverage
+            </a>
+          </p>
         </div>
       ) : (
         <div className="tournament-grid">

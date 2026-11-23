@@ -3,7 +3,9 @@ import { z } from "zod";
 import { Prisma, prisma } from "@clutchverse/db";
 import { auth } from "@/auth";
 import { getRedisClient } from "@/lib/redis";
+import { checkRateLimit } from "@/lib/rate-limit";
 import {
+  getAllowedRegistrationModes,
   normalizeTeamName,
   getRegistrationStatus,
   validateTournamentRegistration,
@@ -21,7 +23,7 @@ export async function GET(
     const [tournament, session] = await Promise.all([
       prisma.tournament.findUnique({
         where: { id },
-        select: { settings: true },
+        select: { settings: true, game: { select: { slug: true } } },
       }),
       auth(),
     ]);
@@ -45,24 +47,26 @@ export async function GET(
       session?.user?.id
         ? prisma.registration.findFirst({
             where: { tournamentId: id, userId: session.user.id },
-            select: { id: true, status: true, mode: true, teamName: true },
+            select: { id: true, status: true, mode: true, teamName: true, teamTag: true },
           })
         : Promise.resolve(null),
       prisma.registration.findMany({
         where: { tournamentId: id, status: { not: "waitlisted" } },
         orderBy: { id: "asc" },
-        select: { id: true, teamName: true, region: true, mode: true, status: true },
+        select: { teamName: true, teamTag: true, region: true },
       }),
     ]);
     return NextResponse.json({
       slots: { registered, total: config.data.maxEntries ?? 128, waitlist },
+      allowedModes: getAllowedRegistrationModes(
+        tournament.game.slug as Parameters<typeof getAllowedRegistrationModes>[0],
+        config.data.allowedModes,
+      ),
       registration,
-      participants: entries.map(({ id: entryId, teamName, region, mode, status }) => ({
-        id: entryId,
+      participants: entries.map(({ teamName, region, teamTag }) => ({
         teamName: teamName ?? "Solo entry",
         region: region ?? "Region not set",
-        mode,
-        status,
+        tag: teamTag,
       })),
     });
   } catch (error) {
@@ -84,6 +88,20 @@ export async function POST(
   if (!session?.user?.id)
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   const { id } = await params;
+  const rateLimit = await checkRateLimit(
+    `tournament-registration:${session.user.id}:${id}`,
+    8,
+    60_000,
+  );
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many registration attempts. Please try again shortly." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+      },
+    );
+  }
   const input = await request.json().catch(() => null);
 
   try {
@@ -110,6 +128,16 @@ export async function POST(
       );
     }
     const config = settings.data;
+    const now = new Date();
+    if (
+      (config.registrationOpensAt && now < new Date(config.registrationOpensAt)) ||
+      (config.registrationClosesAt && now >= new Date(config.registrationClosesAt))
+    ) {
+      return NextResponse.json(
+        { error: "The tournament registration window is closed." },
+        { status: 409 },
+      );
+    }
     const parsed = validateTournamentRegistration(
       input,
       tournament.game.slug as Parameters<typeof validateTournamentRegistration>[1],
@@ -156,6 +184,15 @@ export async function POST(
     const saved = await prisma.$transaction(
       async (transaction) => {
         await transaction.$queryRaw`SELECT "id" FROM "Tournament" WHERE "id" = ${id} FOR UPDATE`;
+        const transactionNow = new Date();
+        if (
+          (config.registrationOpensAt &&
+            transactionNow < new Date(config.registrationOpensAt)) ||
+          (config.registrationClosesAt &&
+            transactionNow >= new Date(config.registrationClosesAt))
+        ) {
+          throw new Error("REGISTRATION_WINDOW_CLOSED");
+        }
         const existingByKey = await transaction.registration.findUnique({
           where: { idempotencyKey: parsed.data.idempotencyKey },
         });
@@ -189,24 +226,26 @@ export async function POST(
 
         const existingEntries = await transaction.registration.findMany({
           where: { tournamentId: id },
-          select: { inGamePlayers: true },
+          select: { inGamePlayers: true, substitutes: true },
         });
         const usedIds = new Set(
-          existingEntries.flatMap(({ inGamePlayers }) =>
-            Array.isArray(inGamePlayers)
-              ? inGamePlayers.flatMap((member) =>
-                  typeof member === "object" &&
-                  member !== null &&
-                  "inGameId" in member &&
-                  typeof member.inGameId === "string"
-                    ? [member.inGameId.toLowerCase()]
-                    : [],
-                )
-              : [],
+          existingEntries.flatMap(({ inGamePlayers, substitutes }) =>
+            [inGamePlayers, substitutes].flatMap((roster) =>
+              Array.isArray(roster)
+                ? roster.flatMap((member) =>
+                    typeof member === "object" &&
+                    member !== null &&
+                    "inGameId" in member &&
+                    typeof member.inGameId === "string"
+                      ? [member.inGameId.toLowerCase()]
+                      : [],
+                  )
+                : [],
+            ),
           ),
         );
         if (
-          parsed.data.members.some((member) =>
+          [...parsed.data.members, ...parsed.data.substitutes].some((member) =>
             usedIds.has(member.inGameId.toLowerCase()),
           )
         ) {
@@ -224,9 +263,12 @@ export async function POST(
             status,
             mode: parsed.data.mode,
             teamName: parsed.data.teamName,
+            teamTag: parsed.data.teamTag,
+            platform: parsed.data.platform,
             normalizedTeamName,
             region: parsed.data.region,
             inGamePlayers: parsed.data.members,
+            substitutes: parsed.data.substitutes,
             idempotencyKey: parsed.data.idempotencyKey,
           },
         });
@@ -263,25 +305,29 @@ export async function POST(
     if (!saved.repeated) {
       try {
         const redis = await getRedisClient();
+        const slots = {
+          registered: saved.registered,
+          total: saved.maxEntries,
+          waitlist: saved.waitlisted,
+        };
+        const updatedAt = new Date().toISOString();
+        const payload =
+          saved.registration.status === "waitlisted"
+            ? { type: "slots:updated", tournamentId: id, slots, updatedAt }
+            : {
+                type: "registration:created",
+                tournamentId: id,
+                registration: {
+                  teamName: saved.registration.teamName ?? "Solo entry",
+                  region: saved.registration.region ?? "Region not set",
+                  tag: saved.registration.teamTag,
+                },
+                slots,
+                updatedAt,
+              };
         await redis?.publish(
           "tournament-registration-events",
-          JSON.stringify({
-            type: "registration:created",
-            tournamentId: id,
-            registration: {
-              id: saved.registration.id,
-              teamName: saved.registration.teamName ?? "Solo entry",
-              region: saved.registration.region,
-              mode: saved.registration.mode,
-              status: saved.registration.status,
-            },
-            slots: {
-              registered: saved.registered,
-              total: saved.maxEntries,
-              waitlist: saved.waitlisted,
-            },
-            updatedAt: new Date().toISOString(),
-          }),
+          JSON.stringify(payload),
         );
       } catch (error) {
         console.error("Tournament registration saved but realtime publish failed.", {
@@ -297,6 +343,7 @@ export async function POST(
           status: saved.registration.status,
           mode: saved.registration.mode,
           teamName: saved.registration.teamName,
+          teamTag: saved.registration.teamTag,
         },
         confirmation:
           saved.registration.status === "waitlisted" ? "waitlisted" : "confirmed",
@@ -314,6 +361,7 @@ export async function POST(
         PLAYER_ALREADY_REGISTERED: "You already have an entry in this tournament.",
         DUPLICATE_INGAME_ID: "An in-game ID in this roster is already registered.",
         IDEMPOTENCY_KEY_CONFLICT: "This request key has already been used.",
+        REGISTRATION_WINDOW_CLOSED: "The tournament registration window is closed.",
       };
       if (messages[error.message]) {
         return NextResponse.json({ error: messages[error.message] }, { status: 409 });
@@ -338,4 +386,6 @@ export async function POST(
 const zodTournamentSettings = z.object({
   maxEntries: z.number().int().positive().max(100_000).optional(),
   allowedModes: z.array(z.enum(["solo", "duo", "squad"])).optional(),
+  registrationOpensAt: z.string().datetime().optional(),
+  registrationClosesAt: z.string().datetime().optional(),
 });

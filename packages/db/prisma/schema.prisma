@@ -36,6 +36,12 @@ enum ChatbotMessageRole {
   ASSISTANT
 }
 
+enum SpotlightSourceType {
+  provider
+  admin
+  ai_assisted_verified
+}
+
 model User {
   id                  String           @id @default(cuid())
   email               String           @unique
@@ -50,6 +56,7 @@ model User {
   backgroundVideo     Boolean          @default(false)
   soundEnabled        Boolean          @default(false)
   customCursor        Boolean          @default(false)
+  chatTranslationEnabled Boolean       @default(false)
   createdAt           DateTime         @default(now())
   profile             PlayerProfile?
   accounts            Account[]
@@ -65,6 +72,41 @@ model User {
   auditLogs           AuditLog[]       @relation("Actor")
   sentTeamInvites     TeamInvite[]     @relation("TeamInviteSender")
   receivedTeamInvites TeamInvite[]     @relation("TeamInviteRecipient")
+  matchReadyStatuses  MatchReadyStatus[]
+  matchLobbyMessages  MatchLobbyMessage[]
+  matchSubmissions    MatchResultSubmission[]
+  matchEvidence       MatchEvidence[]  @relation("MatchEvidenceUploader")
+  openedMatchDisputes MatchDispute[]   @relation("MatchDisputeOpener")
+  resolvedMatchDisputes MatchDispute[] @relation("MatchDisputeResolver")
+  matchDisputeMessages MatchDisputeMessage[]
+  analyticsManualEntries AnalyticsManualEntry[]
+  analyticsShareCard AnalyticsShareCard?
+  analyticsRatingSnapshots AnalyticsRatingSnapshot[]
+  creatorProfile CreatorProfile?
+  creatorOverlayToken CreatorOverlayToken?
+  creatorSchedules CreatorStreamSchedule[]
+  creatorClips CreatorClip[]
+  creatorClipVotes CreatorClipVote[]
+  creatorOwnedPointBalances CreatorPointBalance[]
+  creatorPointBalances CreatorPointBalance[] @relation("CreatorPointViewer")
+  creatorOwnedPointTransactions CreatorPointTransaction[]
+  creatorPointTransactions CreatorPointTransaction[] @relation("CreatorPointViewer")
+  creatorRewards CreatorChannelReward[]
+  creatorOwnedRewardRedemptions CreatorRewardRedemption[]
+  creatorRewardRedemptions CreatorRewardRedemption[] @relation("CreatorRewardViewer")
+  creatorWatchParties CreatorWatchParty[]
+  creatorWatchPartyParticipations CreatorWatchPartyParticipant[]
+  creatorFollows CreatorFollow[] @relation("CreatorFollower")
+  creatorCoStreamRequests CreatorCoStreamRequest[]
+  aiDrafts            AiGeneratedDraft[] @relation("AIDraftOwner")
+  seasonWallets        SeasonWallet[]
+  seasonQuestClaims    SeasonQuestClaim[]
+  seasonPointTransactions SeasonPointTransaction[]
+  seasonAchievements   SeasonAchievement[]
+  seasonRewardClaims  SeasonRewardClaim[]
+  seasonLeagues        SeasonLeague[] @relation("SeasonLeagueOwner")
+  seasonLeagueMemberships SeasonLeagueMember[]
+  seasonPicks          SeasonPick[]
 }
 
 model Account {
@@ -123,6 +165,8 @@ model Game {
   proEvents   ProSceneEvent[]
   proTeams    ProSceneTeam[]
   proPlayers  ProScenePlayer[]
+  analyticsManualEntries AnalyticsManualEntry[]
+  analyticsRatingSnapshots AnalyticsRatingSnapshot[]
 }
 
 model GameRecord {
@@ -213,6 +257,7 @@ model Tournament {
   registrations Registration[]
   matches       Match[]
   scores        TournamentScore[]
+  creatorCoStreamRequests CreatorCoStreamRequest[]
 
   @@index([gameId, state, startsAt])
 }
@@ -227,9 +272,12 @@ model Registration {
   checkedInAt  DateTime?
   mode         String            @default("solo")
   teamName     String?
+  teamTag      String?
+  platform     String?
   normalizedTeamName String?
   region       String?
   inGamePlayers Json?
+  substitutes Json?
   idempotencyKey String?         @unique
   tournament   Tournament        @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   user         User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -371,13 +419,256 @@ model Match {
   entrantBId           String?
   winnerRegistrationId String?
   startsAt             DateTime?
+  roomId               String?
+  roomPassword         String?
+  roomRevealAt          DateTime?
+  checkInStartsAt       DateTime?
+  checkInEndsAt         DateTime?
   tournament           Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   entrantA             Registration? @relation("MatchEntrantA", fields: [entrantAId], references: [id])
   entrantB             Registration? @relation("MatchEntrantB", fields: [entrantBId], references: [id])
   winner               Registration? @relation("MatchWinner", fields: [winnerRegistrationId], references: [id])
   reports              MatchReport[]
+  readyStatuses        MatchReadyStatus[]
+  lobbyMessages        MatchLobbyMessage[]
+  resultSubmissions    MatchResultSubmission[]
+  evidence             MatchEvidence[]
+  disputes             MatchDispute[]
 
   @@unique([tournamentId, round, position])
+}
+
+model FeatureFlag {
+  key       String   @id
+  enabled   Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+model GameSeason {
+  id        String   @id @default(cuid())
+  key       String   @unique @db.VarChar(16)
+  title     String   @db.VarChar(80)
+  startsAt  DateTime
+  endsAt    DateTime
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  wallets   SeasonWallet[]
+  questClaims SeasonQuestClaim[]
+  pointTransactions SeasonPointTransaction[]
+  achievements SeasonAchievement[]
+  rewardClaims SeasonRewardClaim[]
+  leagues   SeasonLeague[]
+  picks     SeasonPick[]
+
+  @@index([active, startsAt, endsAt])
+}
+
+model SeasonWallet {
+  id              String   @id @default(cuid())
+  seasonId        String
+  userId          String
+  xp              Int      @default(0)
+  points          Int      @default(0)
+  streak          Int      @default(0)
+  lastCheckInAt   DateTime?
+  updatedAt       DateTime @updatedAt
+  season          GameSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, userId])
+  @@index([seasonId, xp])
+}
+
+model SeasonQuestClaim {
+  id          String   @id @default(cuid())
+  seasonId    String
+  userId      String
+  questKey    String   @db.VarChar(32)
+  periodKey   String   @db.VarChar(16)
+  xpAward     Int
+  pointsAward Int
+  claimedAt   DateTime @default(now())
+  season      GameSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, userId, questKey, periodKey])
+  @@index([userId, claimedAt])
+}
+
+model SeasonPointTransaction {
+  id          String   @id @default(cuid())
+  seasonId    String
+  userId      String
+  amount      Int
+  reason      String   @db.VarChar(32)
+  referenceKey String  @db.VarChar(80)
+  createdAt   DateTime @default(now())
+  season      GameSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, userId, reason, referenceKey])
+  @@index([seasonId, userId, createdAt])
+}
+
+model SeasonAchievement {
+  id          String   @id @default(cuid())
+  seasonId    String
+  userId      String
+  key         String   @db.VarChar(32)
+  unlockedAt  DateTime @default(now())
+  season      GameSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, userId, key])
+}
+
+model SeasonRewardClaim {
+  id          String   @id @default(cuid())
+  seasonId    String
+  userId      String
+  level       Int
+  claimedAt   DateTime @default(now())
+  season      GameSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, userId, level])
+}
+
+model SeasonLeague {
+  id          String   @id @default(cuid())
+  seasonId    String
+  ownerId     String
+  name        String   @db.VarChar(64)
+  inviteCode  String   @unique @db.VarChar(16)
+  createdAt   DateTime @default(now())
+  season      GameSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  owner       User     @relation("SeasonLeagueOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     SeasonLeagueMember[]
+  picks       SeasonPick[]
+
+  @@index([seasonId, createdAt])
+}
+
+model SeasonLeagueMember {
+  id        String   @id @default(cuid())
+  leagueId  String
+  userId    String
+  joinedAt  DateTime @default(now())
+  league    SeasonLeague @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, userId])
+  @@index([userId, joinedAt])
+}
+
+model SeasonPick {
+  id              String   @id @default(cuid())
+  seasonId        String
+  leagueId        String
+  userId          String
+  eventType       String   @db.VarChar(24)
+  eventRefId      String   @db.VarChar(64)
+  selectionRefId  String   @db.VarChar(64)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  season          GameSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  league          SeasonLeague @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, userId, eventType, eventRefId])
+  @@index([seasonId, eventType, eventRefId])
+}
+
+model MatchReadyStatus {
+  id        String   @id @default(cuid())
+  matchId   String
+  userId    String
+  ready     Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, userId])
+}
+
+model MatchLobbyMessage {
+  id        String   @id @default(cuid())
+  matchId   String
+  authorId  String
+  body      String   @db.VarChar(300)
+  createdAt DateTime @default(now())
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([matchId, createdAt])
+}
+
+model MatchEvidence {
+  id         String   @id @default(cuid())
+  matchId    String
+  uploaderId String
+  storageKey String   @unique
+  mimeType   String
+  sizeBytes  Int
+  aiSuggestion Json?
+  createdAt  DateTime @default(now())
+  match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  uploader   User     @relation("MatchEvidenceUploader", fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([matchId, createdAt])
+}
+
+model MatchResultSubmission {
+  id             String   @id @default(cuid())
+  matchId        String
+  registrationId String
+  reporterId     String
+  scoreA         Int
+  scoreB         Int
+  placementA     Int?
+  placementB     Int?
+  killsA         Int?
+  killsB         Int?
+  evidenceId     String?
+  createdAt      DateTime @default(now())
+  match          Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  reporter       User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, registrationId])
+  @@index([matchId, createdAt])
+}
+
+model MatchDispute {
+  id         String   @id @default(cuid())
+  matchId    String
+  openerId   String
+  resolverId String?
+  status     String   @default("open")
+  reason     String   @db.VarChar(1000)
+  resolution String?  @db.VarChar(1000)
+  dueAt      DateTime
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+  match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  opener     User     @relation("MatchDisputeOpener", fields: [openerId], references: [id])
+  resolver   User?    @relation("MatchDisputeResolver", fields: [resolverId], references: [id])
+  messages   MatchDisputeMessage[]
+
+  @@index([matchId, status])
+  @@index([status, dueAt])
+}
+
+model MatchDisputeMessage {
+  id        String      @id @default(cuid())
+  disputeId String
+  authorId  String
+  body      String      @db.VarChar(2000)
+  createdAt DateTime    @default(now())
+  dispute   MatchDispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  author    User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([disputeId, createdAt])
 }
 
 model MatchReport {
@@ -468,6 +759,23 @@ model ChatbotMessage {
   @@index([conversationId, createdAt])
 }
 
+model AiGeneratedDraft {
+  id             String   @id @default(cuid())
+  ownerId        String
+  kind           String   @db.VarChar(24)
+  title          String   @db.VarChar(160)
+  content        String   @db.Text
+  status         String   @default("pending") @db.VarChar(24)
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  owner          User     @relation("AIDraftOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([ownerId, createdAt])
+}
+
 model ChatReaction {
   id        String      @id @default(cuid())
   messageId String
@@ -496,6 +804,47 @@ model Ranking {
   @@index([gameSlug, period, region, rating])
 }
 
+model AnalyticsManualEntry {
+  id           String   @id @default(cuid())
+  userId       String
+  gameSlug     String
+  playedAt     DateTime
+  opponent     String?  @db.VarChar(120)
+  scoreFor     Int?
+  scoreAgainst Int?
+  placement    Int?
+  kills        Int?
+  deaths       Int?
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game         Game     @relation(fields: [gameSlug], references: [slug], onDelete: Cascade)
+
+  @@index([userId, playedAt])
+  @@index([gameSlug, playedAt])
+}
+
+model AnalyticsShareCard {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  token     String   @unique
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AnalyticsRatingSnapshot {
+  id         String   @id @default(cuid())
+  userId     String
+  gameSlug   String
+  period     String
+  rating     Int
+  capturedOn DateTime
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game       Game     @relation(fields: [gameSlug], references: [slug], onDelete: Cascade)
+
+  @@unique([userId, gameSlug, period, capturedOn])
+  @@index([userId, gameSlug, capturedOn])
+}
+
 model Stream {
   id          String    @id @default(cuid())
   ownerId     String
@@ -505,6 +854,184 @@ model Stream {
   providerUrl String
   state       String    @default("scheduled")
   scheduledAt DateTime?
+}
+
+model CreatorProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  slug            String   @unique
+  displayName     String
+  bio             String   @default("") @db.VarChar(500)
+  coStreamEnabled Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  follows         CreatorFollow[]
+
+  @@index([displayName])
+}
+
+model CreatorOverlayToken {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  token     String   @unique
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CreatorStreamSchedule {
+  id          String   @id @default(cuid())
+  ownerId     String
+  title       String   @db.VarChar(120)
+  gameSlug    String?  @db.VarChar(64)
+  scheduledAt DateTime
+  streamUrl   String?  @db.VarChar(500)
+  status      String   @default("scheduled") @db.VarChar(24)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, scheduledAt])
+  @@index([status, scheduledAt])
+}
+
+model CreatorClip {
+  id         String            @id @default(cuid())
+  ownerId    String
+  title      String            @db.VarChar(120)
+  storageKey String            @unique
+  mimeType   String            @db.VarChar(64)
+  sizeBytes  Int
+  durationMs Int?
+  trimStartMs Int               @default(0)
+  trimEndMs   Int?
+  visibility String            @default("public") @db.VarChar(16)
+  createdAt  DateTime          @default(now())
+  owner      User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  votes      CreatorClipVote[]
+
+  @@index([ownerId, createdAt])
+  @@index([visibility, createdAt])
+}
+
+model CreatorClipVote {
+  id        String      @id @default(cuid())
+  clipId    String
+  userId    String
+  value     Int         @default(1)
+  createdAt DateTime    @default(now())
+  clip      CreatorClip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clipId, userId])
+}
+
+model CreatorChannelReward {
+  id          String                    @id @default(cuid())
+  ownerId     String
+  title       String                    @db.VarChar(80)
+  description String                    @default("") @db.VarChar(240)
+  cost        Int
+  active      Boolean                   @default(true)
+  createdAt   DateTime                  @default(now())
+  owner       User                      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  redemptions CreatorRewardRedemption[]
+
+  @@index([ownerId, active])
+}
+
+model CreatorPointBalance {
+  id        String   @id @default(cuid())
+  ownerId   String
+  viewerId  String
+  points    Int      @default(0)
+  updatedAt DateTime @updatedAt
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  viewer    User     @relation("CreatorPointViewer", fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, viewerId])
+}
+
+model CreatorPointTransaction {
+  id        String   @id @default(cuid())
+  ownerId   String
+  viewerId  String
+  amount    Int
+  reason    String   @db.VarChar(120)
+  createdAt DateTime @default(now())
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  viewer    User     @relation("CreatorPointViewer", fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, viewerId, createdAt])
+}
+
+model CreatorRewardRedemption {
+  id          String             @id @default(cuid())
+  ownerId     String
+  viewerId    String
+  rewardId    String
+  pointsSpent Int
+  status      String             @default("pending") @db.VarChar(24)
+  createdAt   DateTime           @default(now())
+  owner       User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  viewer      User               @relation("CreatorRewardViewer", fields: [viewerId], references: [id], onDelete: Cascade)
+  reward      CreatorChannelReward @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, status, createdAt])
+  @@index([viewerId, createdAt])
+}
+
+model CreatorWatchParty {
+  id          String                        @id @default(cuid())
+  ownerId     String
+  title       String                        @db.VarChar(120)
+  description String                        @default("") @db.VarChar(500)
+  startsAt    DateTime
+  streamUrl   String?                       @db.VarChar(500)
+  status      String                        @default("scheduled") @db.VarChar(24)
+  createdAt   DateTime                      @default(now())
+  owner       User                          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  participants CreatorWatchPartyParticipant[]
+
+  @@index([startsAt, status])
+}
+
+model CreatorWatchPartyParticipant {
+  id          String           @id @default(cuid())
+  watchPartyId String
+  userId      String
+  joinedAt    DateTime         @default(now())
+  watchParty  CreatorWatchParty @relation(fields: [watchPartyId], references: [id], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([watchPartyId, userId])
+}
+
+model CreatorFollow {
+  id              String        @id @default(cuid())
+  followerId      String
+  creatorProfileId String
+  createdAt       DateTime      @default(now())
+  follower        User          @relation("CreatorFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  creatorProfile  CreatorProfile @relation(fields: [creatorProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, creatorProfileId])
+  @@index([creatorProfileId, createdAt])
+}
+
+model CreatorCoStreamRequest {
+  id           String     @id @default(cuid())
+  tournamentId String
+  creatorId    String
+  status       String     @default("pending") @db.VarChar(24)
+  message      String     @default("") @db.VarChar(500)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  creator      User       @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, creatorId])
+  @@index([tournamentId, status])
 }
 
 model Notification {
@@ -557,4 +1084,203 @@ model AuditLog {
   actor      User     @relation("Actor", fields: [actorId], references: [id])
 
   @@index([actorId, createdAt])
+}
+
+model SpotlightEvent {
+  id            String                 @id @default(cuid())
+  slug          String                 @unique
+  gameSlug      String
+  displayName   String
+  status        String                 @default("upcoming")
+  startsAt      DateTime?
+  endsAt        DateTime?
+  venue         String?
+  prizePool     String?
+  totalSlots    Int?
+  officialLinks Json                   @default("[]")
+  sourceType    SpotlightSourceType    @default(admin)
+  sourceName    String
+  sourceUrl     String
+  fetchedAt     DateTime               @default(now())
+  verifiedBy    String?
+  pinned        Boolean                @default(false)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  participants  SpotlightParticipation[]
+  stages        SpotlightStage[]
+  standings     SpotlightStanding[]
+  matches       SpotlightMatch[]
+
+  @@index([gameSlug, status, startsAt])
+}
+
+model SpotlightTeam {
+  id                 String                  @id @default(cuid())
+  slug               String                  @unique
+  name               String
+  countryCode        String                  @db.VarChar(2)
+  region             String?
+  sourceType         SpotlightSourceType     @default(admin)
+  sourceName         String
+  sourceUrl          String
+  fetchedAt          DateTime                @default(now())
+  verifiedBy         String?
+  pinned             Boolean                 @default(false)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  participations     SpotlightParticipation[]
+  players            SpotlightPlayer[]
+
+  @@index([countryCode, name])
+}
+
+model SpotlightParticipation {
+  id                String              @id @default(cuid())
+  eventId           String
+  teamId            String
+  countryCode       String              @db.VarChar(2)
+  qualificationPath String?
+  status            String              @default("confirmed")
+  stageId           String?
+  sourceType        SpotlightSourceType @default(admin)
+  sourceName        String
+  sourceUrl         String
+  fetchedAt         DateTime            @default(now())
+  verifiedBy        String?
+  pinned            Boolean             @default(false)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  event             SpotlightEvent      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  team              SpotlightTeam       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  stage             SpotlightStage?     @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  standings         SpotlightStanding[]
+  matches           SpotlightMatch[]
+
+  @@unique([eventId, teamId])
+  @@index([eventId, countryCode, status])
+}
+
+model SpotlightPlayer {
+  id         String              @id @default(cuid())
+  teamId     String
+  name       String
+  role       String?
+  sourceType SpotlightSourceType @default(admin)
+  sourceName String
+  sourceUrl  String
+  fetchedAt  DateTime            @default(now())
+  verifiedBy String?
+  pinned     Boolean             @default(false)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  team       SpotlightTeam       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, name])
+  @@index([teamId, name])
+}
+
+model SpotlightStage {
+  id         String                  @id @default(cuid())
+  eventId    String
+  name       String
+  sortOrder  Int                     @default(0)
+  status     String                  @default("upcoming")
+  startsAt   DateTime?
+  endsAt     DateTime?
+  sourceType SpotlightSourceType     @default(admin)
+  sourceName String
+  sourceUrl  String
+  fetchedAt  DateTime                @default(now())
+  verifiedBy String?
+  pinned     Boolean                 @default(false)
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+  event      SpotlightEvent          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  participants SpotlightParticipation[]
+  standings  SpotlightStanding[]
+  matches    SpotlightMatch[]
+
+  @@unique([eventId, name])
+  @@index([eventId, sortOrder])
+}
+
+model SpotlightStanding {
+  id              String                  @id @default(cuid())
+  eventId         String
+  stageId         String?
+  participationId String
+  rank            Int?
+  points          Float?
+  placementPoints Float?
+  kills           Int?
+  sourceType      SpotlightSourceType     @default(admin)
+  sourceName      String
+  sourceUrl       String
+  fetchedAt       DateTime                @default(now())
+  verifiedBy      String?
+  pinned          Boolean                 @default(false)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  event           SpotlightEvent          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  stage           SpotlightStage?         @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  participation   SpotlightParticipation  @relation(fields: [participationId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, stageId, rank])
+  @@index([participationId, fetchedAt])
+}
+
+model SpotlightMatch {
+  id              String                  @id @default(cuid())
+  eventId         String
+  stageId         String?
+  participationId String?
+  title           String
+  status          String                  @default("scheduled")
+  startsAt        DateTime?
+  results         Json?
+  sourceType      SpotlightSourceType     @default(admin)
+  sourceName      String
+  sourceUrl       String
+  fetchedAt       DateTime                @default(now())
+  verifiedBy      String?
+  pinned          Boolean                 @default(false)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  event           SpotlightEvent          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  stage           SpotlightStage?         @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  participation   SpotlightParticipation? @relation(fields: [participationId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, status, startsAt])
+}
+
+model SpotlightSourceRecord {
+  id         String              @id @default(cuid())
+  eventSlug  String
+  entityType String
+  entityId   String
+  sourceType SpotlightSourceType @default(admin)
+  sourceName String
+  sourceUrl  String
+  fetchedAt  DateTime            @default(now())
+  verifiedBy String?
+  pinned     Boolean             @default(false)
+  createdAt  DateTime            @default(now())
+
+  @@index([eventSlug, entityType, entityId])
+}
+
+model SpotlightImportDraft {
+  id         String              @id @default(cuid())
+  eventSlug  String
+  kind       String
+  facts      Json
+  sourceName String
+  sourceUrl  String
+  status     String              @default("pending")
+  createdBy  String
+  reviewedBy String?
+  createdAt  DateTime            @default(now())
+  reviewedAt DateTime?
+
+  @@index([eventSlug, status, createdAt])
 }

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@clutchverse/db";
 import { auth } from "@/auth";
+import { publishProSceneUpdate } from "@/lib/pro-scene-events";
+import type { GameSlug } from "@clutchverse/core";
 
 async function adminId() {
   const session = await auth();
@@ -62,6 +64,7 @@ export async function PATCH(
       });
       return saved;
     });
+    await publishProSceneUpdate(event.gameSlug as GameSlug, event.id);
     return NextResponse.json({ event });
   } catch (error) {
     console.error("Pro Scene event update failed.", {
@@ -80,7 +83,11 @@ export async function DELETE(
     return NextResponse.json({ error: actor.error }, { status: actor.status });
   const { id } = await params;
   try {
-    await prisma.$transaction(async (transaction) => {
+    const deleted = await prisma.$transaction(async (transaction) => {
+      const event = await transaction.proSceneEvent.findUniqueOrThrow({
+        where: { id },
+        select: { gameSlug: true },
+      });
       await transaction.proSceneEvent.delete({ where: { id } });
       await transaction.auditLog.create({
         data: {
@@ -90,7 +97,9 @@ export async function DELETE(
           targetId: id,
         },
       });
+      return event;
     });
+    await publishProSceneUpdate(deleted.gameSlug as GameSlug, id);
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Pro Scene event deletion failed.", {

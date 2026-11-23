@@ -11,7 +11,6 @@ import {
   Flame,
   LogOut,
   Menu,
-  Search,
   Settings,
   Swords,
   Trophy,
@@ -27,6 +26,7 @@ import { PageEffects } from "./page-effects";
 import { PreferenceSync } from "./preference-sync";
 import { InterfaceEffects } from "./interface-effects";
 import { GeminiChatWidget } from "./gemini-chat-widget";
+import { GlobalSearch } from "./global-search";
 import { games } from "@clutchverse/core";
 import { languageOptions, type Locale } from "@/i18n/locales";
 import { LocaleProvider, useLocale } from "@/i18n/locale-context";
@@ -34,6 +34,7 @@ import { LocaleProvider, useLocale } from "@/i18n/locale-context";
 const links = [
   ["Tournaments", "/tournaments"],
   ["Rankings", "/rankings"],
+  ["Season play", "/seasonal-play"],
   ["Live", "/live"],
   ["Community", "/community"],
   ["About Us", "/about"],
@@ -211,6 +212,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
                   ? messages.nav.tournaments
                   : label === "Rankings"
                     ? messages.nav.rankings
+                    : label === "Season play"
+                      ? messages.nav.seasonPass
                     : label === "Live"
                       ? messages.nav.live
                       : label === "Community"
@@ -224,13 +227,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
             ))}
           </nav>
           <div className="header-actions">
-            <Link
-              className="icon-button search-button"
-              href="/search"
-              aria-label={messages.account.search}
-            >
-              <Search size={16} />
-            </Link>
+            <GlobalSearch />
             <ThemeSwitcher />
             <div className="language-menu" ref={languageMenuRef}>
               <button

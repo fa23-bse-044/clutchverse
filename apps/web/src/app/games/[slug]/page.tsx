@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { findGame, games } from "@clutchverse/core";
 import { GameHub } from "@/components/game-hub";
+import { SpotlightHubCard } from "@/components/spotlight-hub-card";
 import { prisma } from "@clutchverse/db";
+import { isSpotlightEnabled } from "@/lib/spotlight";
 import type { Tournament as DemoTournament } from "@/lib/demo-data";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +61,26 @@ export default async function GamePage({
   let liveStreams: { id: string; title: string; provider: string }[] = [];
   let playerCount = 0;
   let liveCount = 0;
+  let spotlightCard: { status: string | null; startsAt: string | null } | null = null;
+
+  if (slug === "pubg-mobile") {
+    try {
+      if (await isSpotlightEnabled()) {
+        const spotlight = await prisma.spotlightEvent.findUnique({
+          where: { slug: "pmgc" },
+          select: { status: true, startsAt: true },
+        });
+        spotlightCard = {
+          status: spotlight?.status ?? null,
+          startsAt: spotlight?.startsAt?.toISOString() ?? null,
+        };
+      }
+    } catch (error) {
+      console.error("PMGC hub spotlight unavailable.", {
+        reason: error instanceof Error ? error.name : "database-error",
+      });
+    }
+  }
 
   try {
     const [
@@ -215,15 +237,23 @@ export default async function GamePage({
   }
 
   return (
-    <GameHub
-      game={game}
-      events={events}
-      players={players}
-      teams={teams}
-      records={records}
-      liveStreams={liveStreams}
-      playerCount={playerCount}
-      liveCount={liveCount}
-    />
+    <>
+      {spotlightCard && (
+        <SpotlightHubCard
+          status={spotlightCard.status}
+          startsAt={spotlightCard.startsAt}
+        />
+      )}
+      <GameHub
+        game={game}
+        events={events}
+        players={players}
+        teams={teams}
+        records={records}
+        liveStreams={liveStreams}
+        playerCount={playerCount}
+        liveCount={liveCount}
+      />
+    </>
   );
 }

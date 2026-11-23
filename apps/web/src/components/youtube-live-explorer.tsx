@@ -9,6 +9,7 @@ import type {
   YoutubeLiveStream,
 } from "@/lib/youtube-live";
 import { applyLocaleToDocument, type Locale } from "@/i18n/locales";
+import { StreamPlayerFrame } from "./stream-player-frame";
 
 const games: { slug: GameSlug; name: string; accent: string; channel: string; url: string }[] = [
   {
@@ -136,11 +137,14 @@ export function YoutubeLiveExplorer({ language = "en" }: { language?: Locale }) 
       </div>
 
       {selected && selectedGame && (
-        <div className="youtube-player panel">
+        <StreamPlayerFrame
+          title={selected.stream.title}
+          className="youtube-player panel"
+        >
           <iframe
             src={`https://www.youtube.com/embed/${encodeURIComponent(selected.stream.videoId)}?autoplay=1`}
             title={`${selected.stream.title} — ${selected.stream.channelTitle}`}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allow="fullscreen; autoplay; picture-in-picture; encrypted-media"
             allowFullScreen
             referrerPolicy="strict-origin-when-cross-origin"
           />
@@ -148,7 +152,7 @@ export function YoutubeLiveExplorer({ language = "en" }: { language?: Locale }) 
             <div><span className="eyebrow">{selectedGame.name}</span><strong>{selected.stream.title}</strong><span className="muted">{selected.stream.channelTitle}</span></div>
             <button type="button" className="button button-ghost" onClick={() => setSelected(null)}>Close player</button>
           </div>
-        </div>
+        </StreamPlayerFrame>
       )}
 
       <div className="youtube-game-grid">
@@ -162,7 +166,23 @@ export function YoutubeLiveExplorer({ language = "en" }: { language?: Locale }) 
                 <div><span className="eyebrow">{game.accent}</span><h3>{game.name}</h3></div>
                 {hasStreams && <span className="status-pill status-live"><i className="live-dot" /> LIVE</span>}
               </div>
-              {loading && <p className="muted" role="status">Searching live broadcasts…</p>}
+              {loading && (
+                <div
+                  className="youtube-loading-skeleton"
+                  role="status"
+                  aria-label="Searching live broadcasts"
+                >
+                  {Array.from({ length: 2 }, (_, index) => (
+                    <div className="youtube-skeleton-row" key={index} aria-hidden="true">
+                      <span className="youtube-skeleton-thumbnail" />
+                      <span className="youtube-skeleton-copy">
+                        <span />
+                        <span />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {!loading && hasStreams && (
                 <>
                   {result?.status === "stale" && (

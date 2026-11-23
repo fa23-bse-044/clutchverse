@@ -20,6 +20,17 @@ import { prisma } from "@clutchverse/db";
 import { getRedisClient } from "@/lib/redis";
 import { fetchYoutubeLiveGroup } from "@/lib/youtube-live";
 import type { GameSlug } from "@clutchverse/core";
+import {
+  getPersonalAssistantContext,
+  isAiAssistantEnabled,
+  isMatchRecapRequest,
+  isNewsDraftRequest,
+} from "@/lib/ai-assistant";
+import {
+  get_event_spotlight,
+  getSpotlightBotContext,
+  isSpotlightEnabled,
+} from "@/lib/spotlight";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +39,37 @@ const encoder = new TextEncoder();
 const maxRequestBytes = 65_536;
 const fallbackGeminiModel = "gemini-3.5-flash-lite";
 const allGameSlugs: GameSlug[] = ["pubg-mobile", "free-fire", "tekken-8", "fifa"];
+const newsDraftPrefix = "AI-GENERATED NEWS DRAFT — REQUIRES ADMIN APPROVAL BEFORE PUBLISHING\n\n";
+const recapPrefix = "AI-GENERATED MATCH RECAP\n\n";
+
+async function saveNewsDraft(ownerId: string, title: string, content: string) {
+  const cleanContent = content
+    .replace(newsDraftPrefix, "")
+    .split("\n\n__CLUTCHVERSE_SOURCES__")[0]
+    .trim()
+    .slice(0, 8000);
+  const redactedContent = redactPersonalData(cleanContent);
+  if (!redactedContent) throw new Error("AI_DRAFT_EMPTY");
+  await prisma.$transaction(async (transaction) => {
+    const draft = await transaction.aiGeneratedDraft.create({
+      data: {
+        ownerId,
+        kind: "news",
+        title: title.trim().slice(0, 160) || "AI-generated news draft",
+        content: redactedContent,
+      },
+    });
+    await transaction.auditLog.create({
+      data: {
+        actorId: ownerId,
+        action: "ai-draft.create",
+        targetType: "ai-generated-draft",
+        targetId: draft.id,
+        metadata: { kind: draft.kind, status: draft.status },
+      },
+    });
+  });
+}
 
 function isCurrentGamingNewsQuestion(message: string): boolean {
   return /\b(?:latest|newest|recent|current|patch|update|meta|news|today|this week|season)\b/i.test(
@@ -153,6 +195,48 @@ async function buildLivePlatformContext(
         license: true,
       },
     });
+    const [proStandings, proResults] = await Promise.all([
+      prisma.proSceneStanding.findMany({
+        where: {
+          event: {
+            status: { in: ["live", "upcoming", "completed"] },
+            ...(selectedGame ? { gameSlug: selectedGame } : {}),
+          },
+        },
+        orderBy: [{ fetchedAt: "desc" }, { rank: "asc" }],
+        take: 40,
+        select: {
+          rank: true,
+          points: true,
+          sourceName: true,
+          sourceUrl: true,
+          fetchedAt: true,
+          event: { select: { gameSlug: true, name: true } },
+          team: { select: { name: true } },
+          player: { select: { name: true } },
+        },
+      }),
+      prisma.proSceneResult.findMany({
+        where: {
+          event: {
+            status: { in: ["live", "upcoming", "completed"] },
+            ...(selectedGame ? { gameSlug: selectedGame } : {}),
+          },
+        },
+        orderBy: [{ fetchedAt: "desc" }, { resultDate: "desc" }],
+        take: 40,
+        select: {
+          placement: true,
+          title: true,
+          sourceName: true,
+          sourceUrl: true,
+          fetchedAt: true,
+          event: { select: { gameSlug: true, name: true } },
+          team: { select: { name: true } },
+          player: { select: { name: true } },
+        },
+      }),
+    ]);
     sections.push(
       `Pro Scene source: PostgreSQL admin-managed records, fetched ${asOf}. ${
         proEvents.length
@@ -160,6 +244,13 @@ async function buildLivePlatformContext(
               `${event.gameSlug} — ${event.name}; ${event.status}; starts ${event.startsAt?.toISOString() ?? "date unavailable"}; source ${event.sourceName} ${event.sourceUrl}; updated ${event.fetchedAt.toISOString()}; license ${event.license}`,
             ).join("; ")
           : "No sourced live or upcoming Pro Scene events are stored."
+      }`,
+      `Read-only Pro Scene standings and results as of ${asOf} (PostgreSQL; each record includes its source): ${
+        [...proStandings.map((standing) =>
+          `${standing.event.gameSlug} — ${standing.event.name}; ${standing.team?.name ?? standing.player?.name ?? "entrant"}; rank ${standing.rank ?? "unavailable"}; ${standing.points ?? "—"} points; source ${standing.sourceName} ${standing.sourceUrl}; updated ${standing.fetchedAt.toISOString()}`,
+        ), ...proResults.map((result) =>
+          `${result.event.gameSlug} — ${result.event.name}; ${result.team?.name ?? result.player?.name ?? "entrant"}; ${result.title ?? `${result.placement ?? "—"} place`}; source ${result.sourceName} ${result.sourceUrl}; updated ${result.fetchedAt.toISOString()}`,
+        )].join("; ") || "No sourced standings or results are stored."
       }`,
     );
   } catch (error) {
@@ -345,6 +436,18 @@ export async function POST(request: Request) {
   const safeMessage = redactPersonalData(message);
   const greeting = isSimpleGreeting(message);
   const inScope = !isClearlyUnrelated(message);
+  let aiAssistantEnabled = false;
+  try {
+    aiAssistantEnabled = await isAiAssistantEnabled();
+  } catch (error) {
+    console.error("AI assistant feature flag lookup failed.", {
+      reason: error instanceof Error ? error.name : "database-error",
+    });
+    return NextResponse.json({ error: "AI assistant features are temporarily unavailable." }, { status: 503 });
+  }
+  const newsDraft = aiAssistantEnabled && isNewsDraftRequest(message);
+  const matchRecap = aiAssistantEnabled && isMatchRecapRequest(message);
+  const generatedPrefix = newsDraft ? newsDraftPrefix : matchRecap ? recapPrefix : "";
   const apiKey = process.env.GEMINI_API_KEY ?? "";
   const model = process.env.GEMINI_MODEL || "gemini-flash-latest";
   if (inScope && !greeting && !apiKey) {
@@ -452,6 +555,33 @@ export async function POST(request: Request) {
       },
     }    );
     const liveContext = await buildLivePlatformContext(session.user.id, gameSlug);
+    let eventSpotlightContext = "";
+    if (/\b(?:pmgc|pubg mobile global championship)\b/i.test(message)) {
+      try {
+        eventSpotlightContext = getSpotlightBotContext(
+          (await isSpotlightEnabled()) ? await get_event_spotlight("pmgc") : null,
+        );
+      } catch (error) {
+        console.error("Chatbot event spotlight lookup failed.", {
+          reason: error instanceof Error ? error.name : "query-error",
+        });
+        eventSpotlightContext = "PMGC spotlight data is temporarily unavailable; do not guess event details.";
+      }
+    }
+    let personalizedContext = "";
+    if (aiAssistantEnabled) {
+      try {
+        personalizedContext = await getPersonalAssistantContext(session.user.id, message);
+      } catch (error) {
+        console.error("Personalized chatbot context unavailable.", {
+          reason: error instanceof Error ? error.name : "query-error",
+        });
+        return NextResponse.json(
+          { error: "Personalized assistant data is unavailable right now. Please try again." },
+          { status: 503, headers: { "x-chat-conversation-id": conversation.id } },
+        );
+      }
+    }
     const siteData = [
       "Game rules and FAQs:",
       ...selectedRules.map(
@@ -470,6 +600,8 @@ export async function POST(request: Request) {
         ? "No upcoming or live tournaments were found."
         : "",
       liveContext,
+      eventSpotlightContext,
+      personalizedContext,
     ]
       .filter(Boolean)
       .join("\n")
@@ -505,7 +637,9 @@ export async function POST(request: Request) {
       systemInstruction: {
         parts: [
           {
-            text: `${CHATBOT_SYSTEM_INSTRUCTION}\n\nClutchVerse site data:\n${siteData}`,
+            text: `${CHATBOT_SYSTEM_INSTRUCTION}\n\nWhen answering PMGC questions, use only the get_event_spotlight data supplied in ClutchVerse site data. Cite its source links and as-of time, and say "Data not available yet" for missing fields. Never infer teams, countries, schedules, standings, winners, dates, venue, or prize pool.\n\n${aiAssistantEnabled
+              ? "Provide evidence-based coaching from the signed-in user's own confirmed results. Recommend only verified upcoming events. For team/scrim requests, explain that directory entries are not marked as recruiting or available. Match recaps may use only the confirmed match records supplied. Any requested news article is a draft only, label it AI-generated, do not claim it is published, and remind that an administrator must approve it before publication.\n\n"
+              : ""}ClutchVerse site data:\n${siteData}`,
           },
         ],
       },
@@ -665,10 +799,10 @@ export async function POST(request: Request) {
         }
       }
       const fullFallbackText = fallbackSources.size
-        ? `${fallbackText}\n\n__CLUTCHVERSE_SOURCES__${JSON.stringify(
+        ? `${generatedPrefix}${fallbackText}\n\n__CLUTCHVERSE_SOURCES__${JSON.stringify(
             [...fallbackSources.values()].slice(0, 8),
           )}`
-        : fallbackText;
+        : `${generatedPrefix}${fallbackText}`;
       await prisma.chatbotMessage.create({
         data: {
           conversationId: conversation.id,
@@ -680,6 +814,19 @@ export async function POST(request: Request) {
         where: { id: conversation.id },
         data: { updatedAt: new Date() },
       });
+      if (newsDraft) {
+        try {
+          await saveNewsDraft(session.user.id, safeMessage, fullFallbackText);
+        } catch (error) {
+          console.error("AI-generated news draft could not be queued.", {
+            reason: error instanceof Error ? error.name : "database-error",
+          });
+          return NextResponse.json(
+            { error: "The AI response was created, but the news draft could not be queued for admin review." },
+            { status: 503, headers: { "x-chat-conversation-id": conversation.id } },
+          );
+        }
+      }
       return new Response(fullFallbackText, {
         headers: {
           "content-type": "text/plain; charset=utf-8",
@@ -710,11 +857,12 @@ export async function POST(request: Request) {
 
     const upstreamReader = upstream.body.getReader();
     const conversationHeader = conversation.id;
-    let responseText = "";
+    let responseText = generatedPrefix;
     const sourceLinks = new Map<string, { title: string; url: string }>();
     let cancelled = false;
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
+        if (generatedPrefix) controller.enqueue(encoder.encode(generatedPrefix));
         const decoder = new TextDecoder();
         let buffer = "";
         const processLine = (line: string) => {
@@ -820,6 +968,18 @@ export async function POST(request: Request) {
               where: { id: conversationHeader },
               data: { updatedAt: new Date() },
             });
+            if (newsDraft) {
+              try {
+                await saveNewsDraft(session.user.id, safeMessage, responseText);
+              } catch (error) {
+                console.error("AI-generated news draft could not be queued.", {
+                  reason: error instanceof Error ? error.name : "database-error",
+                });
+                const warning = "\n\nDraft was not queued for admin review; please try again.";
+                responseText += warning;
+                controller.enqueue(encoder.encode(warning));
+              }
+            }
           }
           if (!cancelled) controller.close();
         } catch (error) {

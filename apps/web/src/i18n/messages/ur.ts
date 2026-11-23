@@ -3,6 +3,7 @@ import type { MessageCatalog } from "../types";
 
 const ur = {
   ...en,
+  streamPlayer: en.streamPlayer,
   language: "زبان",
   account: {
     signIn: "سائن اِن",
@@ -18,6 +19,7 @@ const ur = {
     allGames: "تمام گیم ہب",
     tournaments: "ٹورنامنٹس",
     rankings: "درجہ بندی",
+    seasonPass: "سیزن پلے",
     live: "لائیو",
     community: "کمیونٹی",
     about: "ہمارے بارے میں",

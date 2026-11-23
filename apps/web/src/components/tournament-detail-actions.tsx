@@ -1,42 +1,34 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarPlus, Check, Copy, LogIn } from "lucide-react";
 import { io } from "socket.io-client";
 import type { Tournament } from "@/lib/demo-data";
+import { getTournamentRegistrationConfig } from "@/lib/tournament-registration";
 
 type RegistrationStatus = {
   id: string;
   status: string;
   mode: string;
   teamName: string | null;
+  teamTag: string | null;
 };
 
 type Slots = { registered: number; total: number; waitlist: number };
 type Participant = {
-  id: string;
   teamName: string;
   region: string;
-  mode: string;
-  status: string;
-};
-
-const modesByGame: Record<Tournament["game"], Array<"solo" | "duo" | "squad">> = {
-  "pubg-mobile": ["solo", "duo", "squad"],
-  "free-fire": ["solo", "duo", "squad"],
-  "tekken-8": ["solo"],
-  fifa: ["solo", "duo"],
-};
-
-const playerCount: Record<"solo" | "duo" | "squad", number> = {
-  solo: 1,
-  duo: 2,
-  squad: 4,
+  tag: string | null;
 };
 
 export function TournamentDetailActions({ event }: { event: Tournament }) {
+  const gameConfig = getTournamentRegistrationConfig(event.game);
+  const submissionKey = useRef<string | null>(null);
   const [registration, setRegistration] = useState<RegistrationStatus | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [allowedModes, setAllowedModes] = useState<Array<"solo" | "duo" | "squad">>(
+    gameConfig.modes,
+  );
   const [slots, setSlots] = useState<Slots>(() => {
     const [registered = 0, total = 128] = event.entries
       .split("/")
@@ -44,12 +36,14 @@ export function TournamentDetailActions({ event }: { event: Tournament }) {
     return { registered, total, waitlist: 0 };
   });
   const [mode, setMode] = useState<"solo" | "duo" | "squad">(
-    event.game === "pubg-mobile" || event.game === "free-fire" ? "squad" : "solo",
+    gameConfig.modes.includes("squad") ? "squad" : gameConfig.modes[0] ?? "solo",
   );
+  const [substituteCount, setSubstituteCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
-  const modes = modesByGame[event.game];
-  const rosterSize = playerCount[mode];
+  const modes = allowedModes;
+  const rosterSize = gameConfig.sizes[mode];
+  const numericIds = event.game === "pubg-mobile" || event.game === "free-fire";
 
   const calendar = () => {
     const start = (event.startsAt ? new Date(event.startsAt) : new Date(Date.now() + 86400000)).toISOString().replaceAll("-", "").replaceAll(":", "").replace(/\.\d{3}/, "");
@@ -75,12 +69,21 @@ export function TournamentDetailActions({ event }: { event: Tournament }) {
             slots?: Slots;
             registration?: RegistrationStatus | null;
             participants?: Participant[];
+            allowedModes?: Array<"solo" | "duo" | "squad">;
           };
           if (!response.ok) throw new Error("Unable to refresh registration.");
           if (active) {
             if (result.slots) setSlots(result.slots);
             setRegistration(result.registration ?? null);
             if (result.participants) setParticipants(result.participants);
+            if (result.allowedModes?.length) {
+              setAllowedModes(result.allowedModes);
+              setMode((current) =>
+                result.allowedModes?.includes(current)
+                  ? current
+                  : result.allowedModes?.[0] ?? "solo",
+              );
+            }
           }
         })
         .catch((error: unknown) => {
@@ -95,10 +98,12 @@ export function TournamentDetailActions({ event }: { event: Tournament }) {
       if (active) setSlots(update);
     });
     socket.on("registration:created", (update: { registration: Participant }) => {
-      if (active && update.registration.status !== "waitlisted") {
-        setParticipants((current) => current.some((item) => item.id === update.registration.id)
-          ? current
-          : [...current, update.registration]);
+      if (active) {
+        setParticipants((current) => current.some((item) =>
+          item.teamName === update.registration.teamName &&
+          item.region === update.registration.region &&
+          item.tag === update.registration.tag,
+        ) ? current : [...current, update.registration]);
       }
     });
     load();
@@ -125,6 +130,14 @@ export function TournamentDetailActions({ event }: { event: Tournament }) {
       inGameName: String(form.get(`member-name-${index}`) ?? ""),
       inGameId: String(form.get(`member-id-${index}`) ?? ""),
     }));
+    const substitutes = Array.from(
+      { length: mode === "squad" ? substituteCount : 0 },
+      (_, index) => ({
+        inGameName: String(form.get(`sub-name-${index}`) ?? ""),
+        inGameId: String(form.get(`sub-id-${index}`) ?? ""),
+      }),
+    );
+    submissionKey.current ??= crypto.randomUUID();
     try {
       const response = await fetch(`/api/tournaments/${event.id}/register`, {
         method: "POST",
@@ -132,11 +145,14 @@ export function TournamentDetailActions({ event }: { event: Tournament }) {
         body: JSON.stringify({
           mode,
           teamName: mode === "solo" ? undefined : String(form.get("teamName") ?? ""),
+          teamTag: mode === "solo" ? undefined : String(form.get("teamTag") ?? "") || undefined,
+          platform: String(form.get("platform") ?? ""),
           region: String(form.get("region") ?? ""),
           members,
+          substitutes,
           eligibilityConfirmed: form.get("eligibilityConfirmed") === "on",
           rulesAccepted: form.get("rulesAccepted") === "on",
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: submissionKey.current,
         }),
       });
       const result = await response.json() as {
@@ -152,16 +168,18 @@ export function TournamentDetailActions({ event }: { event: Tournament }) {
       const savedRegistration = result.registration;
       if (savedRegistration) setRegistration(savedRegistration);
       if (result.slots) setSlots(result.slots);
-      if (savedRegistration) {
-        setParticipants((current) => current.some((item) => item.id === savedRegistration.id)
-          ? current
-          : [...current, {
-              id: savedRegistration.id,
+      submissionKey.current = null;
+      if (savedRegistration && result.confirmation !== "waitlisted") {
+        const participant = {
               teamName: savedRegistration.teamName ?? "Solo entry",
               region: String(form.get("region") ?? ""),
-              mode: savedRegistration.mode,
-              status: savedRegistration.status,
-            }]);
+              tag: savedRegistration.teamTag ?? null,
+            };
+        setParticipants((current) => current.some((item) =>
+          item.teamName === participant.teamName &&
+          item.region === participant.region &&
+          item.tag === participant.tag,
+        ) ? current : [...current, participant]);
       }
       setNotice(result.confirmation === "waitlisted"
         ? "You are confirmed on the tournament waitlist."
@@ -207,13 +225,24 @@ export function TournamentDetailActions({ event }: { event: Tournament }) {
         void register(new FormData(submitEvent.currentTarget));
       }}>
         <label>MODE
-          <select value={mode} onChange={(changeEvent) => setMode(changeEvent.target.value as typeof mode)}>
+          <select value={mode} onChange={(changeEvent) => {
+            setMode(changeEvent.target.value as typeof mode);
+            setSubstituteCount(0);
+          }}>
             {modes.map((item) => <option value={item} key={item}>{item.toUpperCase()}</option>)}
           </select>
         </label>
         {mode !== "solo" && <label>TEAM NAME
           <input name="teamName" minLength={3} maxLength={24} required />
         </label>}
+        {mode !== "solo" && <label>TEAM TAG (OPTIONAL)
+          <input name="teamTag" minLength={2} maxLength={6} pattern="[A-Za-z0-9]{2,6}" />
+        </label>}
+        <label>PLATFORM
+          <select name="platform" defaultValue={gameConfig.platforms[0]} required>
+            {gameConfig.platforms.map((platform) => <option value={platform} key={platform}>{platform}</option>)}
+          </select>
+        </label>
         <label>REGION
           <input name="region" defaultValue={event.region} minLength={2} maxLength={32} required />
         </label>
@@ -224,10 +253,32 @@ export function TournamentDetailActions({ event }: { event: Tournament }) {
               <input name={`member-name-${index}`} minLength={2} maxLength={40} required />
             </label>
             <label>IN-GAME ID / UID
-              <input name={`member-id-${index}`} minLength={2} maxLength={80} required />
+              <input name={`member-id-${index}`} minLength={2} maxLength={80} inputMode={numericIds ? "numeric" : "text"} required />
             </label>
           </fieldset>
         ))}
+        {mode === "squad" && (
+          <>
+            <label>SUBSTITUTES
+              <select value={substituteCount} onChange={(changeEvent) => setSubstituteCount(Number(changeEvent.target.value))}>
+                <option value={0}>No substitutes</option>
+                <option value={1}>1 substitute</option>
+                <option value={2}>2 substitutes</option>
+              </select>
+            </label>
+            {Array.from({ length: substituteCount }, (_, index) => (
+              <fieldset className="registration-member" key={`sub-${index}`}>
+                <legend>SUBSTITUTE {index + 1}</legend>
+                <label>IN-GAME NAME
+                  <input name={`sub-name-${index}`} minLength={2} maxLength={40} required />
+                </label>
+                <label>IN-GAME ID / UID
+                  <input name={`sub-id-${index}`} minLength={2} maxLength={80} inputMode={numericIds ? "numeric" : "text"} required />
+                </label>
+              </fieldset>
+            ))}
+          </>
+        )}
         <label className="registration-check">
           <input type="checkbox" name="eligibilityConfirmed" required />
           I meet the tournament eligibility requirements.
@@ -248,14 +299,15 @@ export function TournamentDetailActions({ event }: { event: Tournament }) {
     )}
     {registration && (
       <>
-        <p role="status"><Check size={15} /> Registration {registration.status}: {registration.mode}{registration.teamName ? ` · ${registration.teamName}` : ""}</p>
+        <p role="status"><Check size={15} /> Registration {registration.status}: {registration.mode}{registration.teamName ? ` · ${registration.teamName}${registration.teamTag ? ` [${registration.teamTag}]` : ""}` : ""}</p>
         {registration.status === "registered" && <button className="button full-button" onClick={checkIn}>Check in</button>}
       </>
     )}
     <div className="registration-participants" aria-live="polite">
-      {participants.map((participant) => (
-        <p key={participant.id}>
-          <strong>{participant.teamName}</strong> · {participant.region} · {participant.mode}
+      {participants.map((participant, index) => (
+        <p key={`${participant.teamName}:${participant.region}:${participant.tag ?? ""}:${index}`}>
+          <strong>{participant.teamName}</strong>
+          {participant.tag ? ` [${participant.tag}]` : ""} · {participant.region}
         </p>
       ))}
     </div>
